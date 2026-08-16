@@ -1,0 +1,63 @@
+version: '3.8'
+
+services:
+  # Base de données MySQL
+  db:
+    build: ./database
+    container_name: smarttask_db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+    ports:
+      - "${PORT_DB}:3306"
+    volumes:
+      - db_data:/var/lib/mysql
+    networks:
+      - smarttask_network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      timeout: 20s
+      retries: 10
+      interval: 10s
+      start_period: 30s
+
+  # Backend Node.js
+  backend:
+    build: ./backend
+    container_name: smarttask_backend
+    restart: unless-stopped
+    environment:
+      DB_HOST: ${DB_HOST}
+      DB_USER: root
+      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      DB_NAME: ${MYSQL_DATABASE}
+      PORT: ${PORT}
+    ports:
+      - "${PORT_BACKEND}:${PORT}"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - smarttask_network
+
+  # Frontend React
+  frontend:
+    build: ./frontend
+    container_name: smarttask_frontend
+    restart: unless-stopped
+    ports:
+      - "${PORT_FRONTEND}:80"
+    depends_on:
+      - backend
+    networks:
+      - smarttask_network
+
+networks:
+  smarttask_network:
+    driver: bridge
+    name: smarttask_network
+
+volumes:
+  db_data:
+    name: smarttask_db_data
