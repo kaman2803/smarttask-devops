@@ -2,65 +2,886 @@
 
 SmartTask est une application web de gestion de tâches développée selon une architecture microservices et entièrement conteneurisée avec Docker.
 
-## Architecture & Technologies
-
-* **Frontend** : Application React / Vite servie par Nginx
-* **Backend** : API REST Node.js / Express
-* **Database** : Base de données relationnelle MySQL 8.0
-* **Orchestration** : Docker Compose
-* **CI/CD** : Jenkins Automation Pipeline
+Le projet met en œuvre une chaîne DevOps complète intégrant la conteneurisation, l'orchestration, le versionnement Git/GitHub et l'automatisation CI/CD avec Jenkins.
 
 ---
 
-## Structure du Dépôt
+## 1. Architecture générale
+
+SmartTask repose sur une architecture microservices composée de trois services principaux :
+
+- **Frontend** : application React/Vite servie par Nginx
+- **Backend** : API REST développée avec Node.js et Express
+- **Database** : base de données MySQL 8.0
+
+```mermaid
+flowchart TB
+    Client["Poste client<br/>Navigateur Web"]
+
+    Frontend["Frontend<br/>React + Nginx<br/>Port 8081"]
+
+    Backend["Backend API<br/>Node.js + Express<br/>Port 5000"]
+
+    Database["Database<br/>MySQL 8.0<br/>Port 3306"]
+
+    Network["smarttask_network<br/>Réseau Docker privé"]
+
+    Client -->|HTTP : 8081| Frontend
+    Frontend -->|HTTP : 5000| Backend
+    Backend -->|MySQL : 3306| Database
+
+    Frontend -.-> Network
+    Backend -.-> Network
+    Database -.-> Network
+```
+
+### Flux applicatif
 
 ```text
-smarttask-devops/
-├── backend/            # Code source de l'API Node.js/Express & Dockerfile
-├── database/           # Dockerfile et configurations MySQL
-├── frontend/           # Code source de l'interface React & Dockerfile
-├── .env.example        # Modèle pour les variables d'environnement
-├── .gitignore          # Fichiers et répertoires ignorés par Git
-├── build-images.sh     # Script Bash de build individuel des images Docker
-├── docker-compose.yml  # Fichier d'orchestration multi-conteneurs
-├── Jenkinsfile         # Pipeline CI/CD automatisé
-└── README.md           # Documentation du projet
-Prérequis
-Docker Engine (v20.10+)
+Poste client
+     |
+     | HTTP : 8081
+     v
+Frontend React / Nginx
+     |
+     | HTTP : 5000
+     v
+Backend Node.js / Express
+     |
+     | MySQL : 3306
+     v
+Base de données MySQL
+```
 
-Docker Compose (v2.0+)
+---
 
-Git
+## 2. Architecture réseau et communication inter-services
 
-Guide de Déploiement Rapide
-Cloner le dépôt et accéder au répertoire :
+La communication entre les composants repose sur un réseau Docker privé nommé :
 
-Bash
-git clone [https://github.com/VOTRE_USERNAME/smarttask-devops.git](https://github.com/VOTRE_USERNAME/smarttask-devops.git)
+```text
+smarttask_network
+```
+
+Les trois conteneurs sont connectés à ce réseau.
+
+### 2.1 Communication Backend → Database
+
+Le Backend communique avec MySQL à travers le réseau Docker interne.
+
+Le serveur MySQL est accessible par son nom de service Docker :
+
+```text
+db
+```
+
+La variable d'environnement utilisée par le Backend est :
+
+```env
+DB_HOST=db
+```
+
+La communication Backend → MySQL utilise le port interne :
+
+```text
+3306
+```
+
+Aucune adresse IP statique de conteneur n'est nécessaire grâce à la résolution DNS intégrée à Docker Compose.
+
+### 2.2 Communication Client → Frontend
+
+Le navigateur du poste client accède au Frontend via le port `8081` de la machine hôte :
+
+```text
+http://<IP_SERVEUR>:8081
+```
+
+Le port `8081` de l'hôte est redirigé vers le port `80` du conteneur Nginx.
+
+### 2.3 Communication Frontend → Backend
+
+Le code JavaScript exécuté dans le navigateur consomme l'API Backend via le port `5000` exposé par le serveur :
+
+```text
+http://<IP_SERVEUR>:5000/api/tasks
+```
+
+Le Backend communique ensuite avec MySQL via le réseau Docker interne.
+
+---
+
+## 3. Technologies utilisées
+
+| Composant | Technologie |
+|---|---|
+| Frontend | React / Vite |
+| Serveur Web | Nginx |
+| Backend | Node.js / Express |
+| Base de données | MySQL 8.0 |
+| Conteneurisation | Docker |
+| Orchestration | Docker Compose |
+| Versionnement | Git |
+| Hébergement du dépôt | GitHub |
+| CI/CD | Jenkins |
+| Runtime JavaScript | Node.js 20 LTS |
+| Java | OpenJDK 21 |
+
+---
+
+## 4. Objectifs du projet
+
+L'objectif global de **SmartTask DevOps** est de concevoir, conteneuriser, automatiser et déployer une application web microservices complète en appliquant les principes et bonnes pratiques DevOps.
+
+### 4.1 Conteneurisation et orchestration
+
+| Objectif | Description |
+|---|---|
+| Isolation | Isoler le Frontend, le Backend et la base de données dans des conteneurs indépendants |
+| Standardisation | Garantir un environnement reproductible entre les différentes machines |
+| Orchestration | Permettre le démarrage de toute la stack avec Docker Compose |
+| Persistance | Conserver les données MySQL grâce à un volume Docker |
+
+### 4.2 Gestion du versionnement
+
+Le projet utilise Git et GitHub pour :
+
+- centraliser le code source ;
+- suivre les modifications ;
+- gérer les différentes versions ;
+- séparer les environnements de développement et de production.
+
+### 4.3 Automatisation CI/CD
+
+Jenkins est utilisé pour automatiser la chaîne d'intégration et de déploiement continu.
+
+Le pipeline est organisé autour des étapes suivantes :
+
+```text
+Checkout
+    ↓
+Build
+    ↓
+Tests
+    ↓
+Construction des images
+    ↓
+Déploiement
+```
+
+---
+
+## 5. Structure du projet
+
+```text
+.
+├── backend/                   # Service API Node.js / Express
+│   ├── Dockerfile             # Image Docker du Backend
+│   ├── package.json           # Dépendances Node.js
+│   └── server.js              # Code source et endpoints REST
+│
+├── database/                  # Service MySQL
+│   └── Dockerfile             # Image MySQL
+│
+├── frontend/                  # Interface React / Vite
+│   ├── Dockerfile             # Image Docker Frontend
+│   ├── index.html             # Point d'entrée HTML
+│   ├── nginx.conf             # Configuration Nginx
+│   ├── package.json           # Dépendances Node.js
+│   ├── src/
+│   │   ├── api/               # Communication avec l'API Backend
+│   │   ├── components/        # Composants React
+│   │   ├── App.jsx            # Composant principal
+│   │   ├── main.jsx           # Point d'entrée React
+│   │   └── index.css          # Styles globaux
+│   └── vite.config.js         # Configuration Vite
+│
+├── .env.example               # Modèle des variables d'environnement
+├── .gitignore                 # Fichiers exclus de Git
+├── docker-compose.yml         # Orchestration des services
+├── build-images.sh            # Script de construction des images
+├── Jenkinsfile                # Pipeline CI/CD Jenkins
+├── setup.sh                   # Script d'installation de l'environnement
+└── README.md                  # Documentation du projet
+```
+
+---
+
+## 6. Prérequis
+
+L'environnement recommandé est un serveur Linux Ubuntu disposant d'un accès Internet et d'un compte utilisateur avec des privilèges `sudo`.
+
+### Prérequis système
+
+- Linux / Ubuntu recommandé
+- Architecture x86_64 / amd64
+- Accès Internet
+- Compte utilisateur avec privilèges `sudo`
+- Git 2.x ou supérieur
+
+### Composants installés par `setup.sh`
+
+Le script `setup.sh` automatise l'installation et la configuration de :
+
+- Docker Engine
+- Docker Compose
+- Git
+- Node.js 20 LTS
+- npm
+- OpenJDK 21
+- Jenkins
+
+Le script configure également :
+
+- l'utilisateur courant dans le groupe `docker` ;
+- l'utilisateur `jenkins` dans le groupe `docker` ;
+- le démarrage automatique de Jenkins.
+
+> Jenkins est nécessaire pour la partie CI/CD. Il n'est pas indispensable pour effectuer un déploiement manuel avec Docker Compose.
+
+---
+
+## 7. Installation et préparation de l'environnement
+
+Le script `setup.sh`, présent à la racine du dépôt, permet de préparer automatiquement l'environnement nécessaire au projet.
+
+### 7.1 Cloner le dépôt
+
+Depuis le serveur de déploiement :
+
+```bash
+git clone https://github.com/kaman2803/smarttask-devops.git
 cd smarttask-devops
-Configurer les variables d'environnement :
+```
 
-Bash
+La branche `Dev` étant la branche par défaut du dépôt, Git la sélectionne automatiquement lors du clonage.
+
+### 7.2 Vérifier le script
+
+Le script est versionné avec ses permissions d'exécution :
+
+```bash
+ls -l setup.sh
+```
+
+Il doit notamment apparaître avec le droit `x` :
+
+```text
+-rwxrwxr-x
+```
+
+Il n'est donc pas nécessaire d'exécuter `chmod +x setup.sh` après le clonage.
+
+### 7.3 Exécuter l'installation
+
+```bash
+./setup.sh
+```
+
+Le script installe et configure automatiquement :
+
+```text
+Git
+Docker Engine
+Docker Compose
+Node.js 20 LTS
+npm
+OpenJDK 21
+Jenkins
+```
+
+Il configure également :
+
+```text
+Utilisateur courant → groupe docker
+Jenkins → groupe docker
+Jenkins → démarrage automatique
+```
+
+### 7.4 Appliquer les droits du groupe Docker
+
+Lorsque l'installation est réalisée depuis une session SSH déjà ouverte, l'ajout au groupe `docker` n'est pas immédiatement disponible dans la session courante.
+
+Exécuter :
+
+```bash
+newgrp docker
+```
+
+Ou fermer la session SSH puis se reconnecter.
+
+Vérifier ensuite :
+
+```bash
+groups
+```
+
+Puis tester Docker sans `sudo` :
+
+```bash
+docker ps
+```
+
+> `newgrp docker` est uniquement nécessaire lorsque la session courante n'a pas encore pris en compte l'ajout de l'utilisateur au groupe `docker`.
+
+### 7.5 Vérifier l'installation
+
+Vérifier les versions installées :
+
+```bash
+docker --version
+docker compose version
+git --version
+node -v
+npm -v
+java -version
+```
+
+Vérifier Jenkins :
+
+```bash
+sudo systemctl status jenkins --no-pager
+```
+
+Vérifier l'appartenance de Jenkins au groupe Docker :
+
+```bash
+groups jenkins
+```
+
+Le résultat doit notamment contenir :
+
+```text
+jenkins docker
+```
+
+---
+
+## 8. Guide de déploiement
+
+La branche `Dev` est la branche par défaut du dépôt et est utilisée pour le développement et les tests.
+
+La branche `Prod` contient la version stable destinée à la production.
+
+### 8.1 Préparer les variables d'environnement
+
+Le fichier `.env` n'est pas versionné dans Git afin d'éviter de publier les informations sensibles.
+
+Créer le fichier à partir du modèle :
+
+```bash
 cp .env.example .env
-Lancer la stack d'applications :
+```
 
-Bash
+Modifier ensuite les valeurs :
+
+```bash
+nano .env
+```
+
+Exemple :
+
+```env
+MYSQL_ROOT_PASSWORD=<mot_de_passe_root>
+MYSQL_DATABASE=smarttask_db
+MYSQL_USER=smarttask_user
+MYSQL_PASSWORD=<mot_de_passe_user>
+
+DB_HOST=db
+PORT=5000
+
+PORT_FRONTEND=8081
+PORT_BACKEND=5000
+PORT_DB=3306
+```
+
+> Le fichier `.env` est exclu du dépôt grâce au fichier `.gitignore`. Il ne doit jamais être versionné.
+
+### 8.2 Vérifier la configuration Docker Compose
+
+Avant de démarrer les services :
+
+```bash
+docker compose config
+```
+
+Cette commande permet de vérifier notamment :
+
+- les variables d'environnement ;
+- les services ;
+- les ports ;
+- le réseau Docker ;
+- le volume MySQL ;
+- les dépendances entre les services.
+
+### 8.3 Construire et démarrer la stack
+
+```bash
 docker compose up -d --build
-Vérifier l'état des conteneurs :
+```
 
-Bash
+Cette commande :
+
+1. construit les trois images Docker ;
+2. crée le réseau `smarttask_network` ;
+3. crée le volume `smarttask_db_data` ;
+4. démarre MySQL ;
+5. attend que MySQL soit disponible ;
+6. démarre le Backend ;
+7. démarre le Frontend.
+
+### 8.4 Vérifier l'état des conteneurs
+
+```bash
 docker compose ps
+```
 
-Tableau des Endpoints et Ports Exposés
+Résultat attendu :
 
-| Service | URL / Port | Description |
-|---------|------------|-------------|
-| **Frontend** | `http://localhost:8081` | Interface utilisateur React |
-| **Backend API** | `http://localhost:5000/api/tasks` | Endpoints API REST |
-| **Healthcheck** | `http://localhost:5000/api/health` | État de santé de l'API |
-| **MySQL** | `localhost:3306` | Accès direct à la base de données |
+| Conteneur | Service | État attendu | Port |
+|---|---|---|---|
+| `smarttask_frontend` | Frontend | Up / Healthy | `8081 → 80` |
+| `smarttask_backend` | Backend | Up | `5000 → 5000` |
+| `smarttask_db` | MySQL | Up / Healthy | `3306 → 3306` |
 
-Stratégie de Branches Git
-Dev : Branche de développement et d'intégration continue.
+Vérifier également les conteneurs actifs :
 
-Prod : Branche stable de production pour les déploiements finaux.
+```bash
+docker ps
+```
+
+### 8.5 Consulter les logs
+
+Afficher les logs de l'ensemble de la stack :
+
+```bash
+docker compose logs
+```
+
+Suivre les logs en temps réel :
+
+```bash
+docker compose logs -f
+```
+
+Consulter les logs d'un service particulier :
+
+```bash
+docker compose logs backend
+docker compose logs db
+docker compose logs frontend
+```
+
+---
+
+## 9. Vérification du déploiement
+
+### 9.1 Vérification du Backend
+
+Tester la route principale :
+
+```bash
+curl http://localhost:5000/
+```
+
+Réponse attendue :
+
+```json
+{
+  "message": "API SmartTask opérationnelle et connectée à la base de données !"
+}
+```
+
+Les logs Backend doivent également indiquer :
+
+```text
+Backend SmartTask démarré sur le port 5000
+Table "tasks" vérifiée / créée avec succès dans MySQL.
+```
+
+### 9.2 Test du Healthcheck
+
+```bash
+curl http://localhost:5000/api/health
+```
+
+Réponse attendue :
+
+```json
+{
+  "status": "OK",
+  "timestamp": "..."
+}
+```
+
+### 9.3 Test GET
+
+Tester la récupération des tâches :
+
+```bash
+curl http://localhost:5000/api/tasks
+```
+
+Lorsque la base est vide :
+
+```json
+[]
+```
+
+### 9.4 Test Frontend
+
+Vérifier que Nginx sert correctement l'application React :
+
+```bash
+curl -I http://localhost:8081
+```
+
+Une réponse HTTP `200 OK` confirme que le Frontend est accessible.
+
+Exemple :
+
+```text
+HTTP/1.1 200 OK
+Server: nginx/1.31.3
+Content-Type: text/html
+```
+
+Depuis un poste client du réseau :
+
+```text
+http://<IP_SERVEUR>:8081
+```
+
+Exemple :
+
+```text
+http://192.168.120.3:8081
+```
+
+---
+
+## 10. Test CRUD de l'API REST
+
+Le fonctionnement de l'API est vérifié à travers les quatre opérations CRUD :
+
+```text
+Create
+Read
+Update
+Delete
+```
+
+### 10.1 CREATE - Création d'une tâche
+
+```bash
+curl -X POST http://localhost:5000/api/tasks \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "Test Docker",
+    "description": "Test de déploiement SmartTask",
+    "status": "À faire",
+    "priority": "high"
+  }'
+```
+
+Réponse attendue :
+
+```json
+{
+  "id": 1,
+  "title": "Test Docker",
+  "description": "Test de déploiement SmartTask",
+  "status": "À faire",
+  "priority": "high"
+}
+```
+
+### 10.2 READ - Lecture des tâches
+
+```bash
+curl http://localhost:5000/api/tasks
+```
+
+La tâche créée doit apparaître dans la réponse.
+
+### 10.3 UPDATE - Modification d'une tâche
+
+```bash
+curl -X PUT http://localhost:5000/api/tasks/1 \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "Test Docker modifié",
+    "description": "Test CRUD SmartTask",
+    "status": "En cours",
+    "priority": "medium"
+  }'
+```
+
+Vérifier la modification :
+
+```bash
+curl http://localhost:5000/api/tasks
+```
+
+### 10.4 DELETE - Suppression d'une tâche
+
+```bash
+curl -X DELETE http://localhost:5000/api/tasks/1
+```
+
+Réponse attendue :
+
+```json
+{
+  "message": "Tâche supprimée avec succès"
+}
+```
+
+Vérification finale :
+
+```bash
+curl http://localhost:5000/api/tasks
+```
+
+Résultat attendu :
+
+```json
+[]
+```
+
+---
+
+## 11. Résultat de la validation
+
+Les tests réalisés sur l'environnement de déploiement ont confirmé le bon fonctionnement de la stack.
+
+| Élément vérifié | Résultat |
+|---|---|
+| Image MySQL | ✅ Construite |
+| Conteneur MySQL | ✅ Healthy |
+| Image Backend | ✅ Construite |
+| Conteneur Backend | ✅ Opérationnel |
+| Image Frontend | ✅ Construite |
+| Conteneur Frontend | ✅ Healthy |
+| Réseau Docker | ✅ Créé |
+| Volume MySQL | ✅ Créé |
+| Backend → MySQL | ✅ Validé |
+| API principale | ✅ Validée |
+| API Healthcheck | ✅ Validée |
+| API GET | ✅ Validée |
+| API POST | ✅ Validée |
+| API PUT | ✅ Validée |
+| API DELETE | ✅ Validée |
+| Frontend / Nginx | ✅ HTTP 200 |
+| CRUD complet | ✅ Validé |
+
+---
+
+## 12. Ports et endpoints
+
+### 12.1 Ports exposés
+
+| Composant | Service Docker | Port hôte | Port conteneur | Accès |
+|---|---|---:|---:|---|
+| Frontend | `smarttask_frontend` | `8081` | `80` | `http://<IP_SERVEUR>:8081` |
+| Backend API | `smarttask_backend` | `5000` | `5000` | `http://<IP_SERVEUR>:5000` |
+| MySQL | `smarttask_db` | `3306` | `3306` | `<IP_SERVEUR>:3306` |
+
+### 12.2 Endpoints REST
+
+| Méthode | Endpoint | Description |
+|---|---|---|
+| `GET` | `/` | Vérification de l'API |
+| `GET` | `/api/health` | Healthcheck de l'API |
+| `GET` | `/api/tasks` | Récupération des tâches |
+| `POST` | `/api/tasks` | Création d'une tâche |
+| `PUT` | `/api/tasks/:id` | Modification d'une tâche |
+| `DELETE` | `/api/tasks/:id` | Suppression d'une tâche |
+
+---
+
+## 13. Gestion de la stack Docker
+
+### Arrêter les conteneurs
+
+Pour arrêter la stack sans supprimer les données :
+
+```bash
+docker compose down
+```
+
+Le volume MySQL est conservé.
+
+### Redémarrer la stack
+
+```bash
+docker compose up -d
+```
+
+### Supprimer complètement la stack
+
+```bash
+docker compose down -v
+```
+
+> ⚠️ L'option `-v` supprime le volume MySQL et entraîne donc la suppression des données persistantes de la base de données.
+
+---
+
+## 14. Stratégie Git
+
+Le projet utilise deux branches principales.
+
+### Branche `Dev`
+
+La branche `Dev` est la branche par défaut du dépôt.
+
+Elle est utilisée pour :
+
+- le développement ;
+- l'intégration des nouvelles fonctionnalités ;
+- les corrections ;
+- les tests ;
+- l'intégration continue.
+
+### Branche `Prod`
+
+La branche `Prod` contient la version stable destinée à la production.
+
+Pour travailler explicitement sur la branche `Prod` :
+
+```bash
+git switch Prod
+```
+
+Pour vérifier la branche courante :
+
+```bash
+git branch --show-current
+```
+
+Pour consulter l'état du dépôt :
+
+```bash
+git status
+```
+
+---
+
+## 15. CI/CD avec Jenkins
+
+Le projet contient un fichier :
+
+```text
+Jenkinsfile
+```
+
+Ce fichier définit le pipeline CI/CD du projet.
+
+La chaîne d'automatisation suit le principe :
+
+```text
+GitHub
+   ↓
+Checkout
+   ↓
+Build
+   ↓
+Tests
+   ↓
+Build des images Docker
+   ↓
+Déploiement
+```
+
+L'utilisateur système `jenkins` est ajouté au groupe Docker par le script `setup.sh`.
+
+Le service Jenkins est activé automatiquement :
+
+```bash
+sudo systemctl enable --now jenkins
+```
+
+Vérification :
+
+```bash
+sudo systemctl status jenkins --no-pager
+```
+
+Vérifier également :
+
+```bash
+groups jenkins
+```
+
+Le résultat doit contenir :
+
+```text
+jenkins docker
+```
+
+---
+
+## 16. Sécurité et gestion des secrets
+
+Les informations sensibles sont stockées dans :
+
+```text
+.env
+```
+
+Ce fichier est exclu du dépôt Git grâce au `.gitignore` :
+
+```gitignore
+.env
+```
+
+Le dépôt contient uniquement le modèle :
+
+```text
+.env.example
+```
+
+Pour créer la configuration locale :
+
+```bash
+cp .env.example .env
+```
+
+Les mots de passe réels ne doivent jamais être ajoutés au dépôt Git.
+
+---
+
+## 17. Résumé
+
+| Axe | Objectif |
+|---|---|
+| Conteneurisation | Isoler les différents composants avec Docker |
+| Orchestration | Gérer la stack avec Docker Compose |
+| Réseau | Assurer la communication inter-services avec `smarttask_network` |
+| Base de données | Assurer la persistance avec MySQL et un volume Docker |
+| Versionnement | Gérer le code avec Git et GitHub |
+| Branches | Séparer développement (`Dev`) et production (`Prod`) |
+| CI/CD | Automatiser les processus avec Jenkins |
+| Déploiement | Fournir un environnement reproductible et automatisé |
+
+---
+
+## Conclusion
+
+Le projet **SmartTask DevOps** permet de transformer une application web classique en une solution microservices conteneurisée et automatisable.
+
+L'environnement peut être préparé automatiquement avec `setup.sh`, la stack applicative est orchestrée avec Docker Compose et les communications entre services sont assurées par un réseau Docker dédié.
+
+Les tests réalisés ont permis de valider :
+
+- la construction des images Docker ;
+- le démarrage des trois services ;
+- la communication Backend → MySQL ;
+- le fonctionnement de l'API REST ;
+- les opérations CRUD ;
+- le service Frontend avec Nginx ;
+- la persistance des données ;
+- la préparation de l'environnement Jenkins pour la CI/CD.
+
+Le projet constitue ainsi une base complète pour la mise en œuvre d'une chaîne **DevOps / CI/CD** reproductible et maintenable.
