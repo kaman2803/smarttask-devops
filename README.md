@@ -770,118 +770,539 @@ git status
 
 ## 15. CI/CD avec Jenkins
 
-Le projet contient un fichier :
+Le projet met en œuvre une chaîne CI/CD automatisée avec Jenkins afin de construire, versionner et publier les images Docker de l'application SmartTask.
+
+L'architecture CI/CD repose sur :
+
+- **Jenkins**
+- **Jenkins Multibranch Pipeline**
+- **GitHub** comme gestionnaire du code source
+- **Un agent Docker personnalisé**
+- **Docker Engine**
+- **Docker Hub** comme registre d'images
+- Deux branches principales : `Dev` et `Prod`
+
+### 15.1 Architecture du pipeline
+
+```text
+                         GitHub
+                            │
+                            │ Push / Commit
+                            ▼
+                  Jenkins Multibranch
+                            │
+                  Détection des branches
+                            │
+                   ┌────────┴────────┐
+                   │                 │
+                  Dev               Prod
+                   │                 │
+                   └────────┬────────┘
+                            ▼
+                  Agent Docker Jenkins
+                            │
+                            ▼
+                    Checkout du code
+                            │
+                            ▼
+                  Build des images Docker
+                            │
+                            ▼
+                     Tag des images
+                            │
+                            ▼
+                    Docker Hub Login
+                            │
+                            ▼
+                  Push vers Docker Hub
+                            │
+                    ┌───────┼───────┐
+                    ▼       ▼       ▼
+                Frontend  Backend  Database
+```
+
+### 15.2 Jenkins Multibranch Pipeline
+
+Le projet utilise un **Jenkins Multibranch Pipeline** connecté au dépôt GitHub :
+
+```text
+https://github.com/kaman2803/smarttask-devops
+```
+
+Le pipeline détecte automatiquement les branches du dépôt.
+
+Les branches utilisées sont :
+
+```text
+Dev
+Prod
+```
+
+Chaque branche possède son propre contexte d'exécution Jenkins.
+
+Le fichier :
 
 ```text
 Jenkinsfile
 ```
 
-Ce fichier définit le pipeline CI/CD du projet.
+est récupéré directement depuis la branche concernée.
 
-La chaîne d'automatisation suit le principe :
+### 15.3 Agent Docker personnalisé
+
+Pour permettre à Jenkins d'exécuter les commandes Docker, un agent Docker personnalisé a été créé.
+
+Le fichier utilisé est :
 
 ```text
-GitHub
-   ↓
-Checkout
-   ↓
-Build
-   ↓
-Tests
-   ↓
-Build des images Docker
-   ↓
-Déploiement
+jenkins-agent/Dockerfile
 ```
 
-L'utilisateur système `jenkins` est ajouté au groupe Docker par le script `setup.sh`.
+Contenu :
 
-Le service Jenkins est activé automatiquement :
+```dockerfile
+FROM jenkins/inbound-agent:latest
+
+USER root
+
+RUN apt-get update \
+    && apt-get install -y docker.io \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+USER jenkins
+```
+
+Cet agent ajoute la CLI Docker à l'image officielle Jenkins.
+
+L'image a été construite localement avec :
 
 ```bash
-sudo systemctl enable --now jenkins
+docker build -t smarttask-jenkins-agent:latest ./jenkins-agent
 ```
 
 Vérification :
 
 ```bash
-sudo systemctl status jenkins --no-pager
+docker images | grep smarttask-jenkins-agent
 ```
 
-Vérifier également :
-
-```bash
-groups jenkins
-```
-
-Le résultat doit contenir :
+Résultat obtenu :
 
 ```text
-jenkins docker
+smarttask-jenkins-agent:latest
 ```
+
+La présence de la CLI Docker dans l'agent a été validée avec :
+
+```bash
+docker run --rm \
+  --entrypoint docker \
+  smarttask-jenkins-agent:latest \
+  --version
+```
+
+Résultat :
+
+```text
+Docker version 26.1.5+dfsg1, build a72d7cd
+```
+
+L'agent Jenkins utilise également le socket Docker de l'hôte :
+
+```text
+/var/run/docker.sock
+```
+
+Ce montage permet aux commandes Docker exécutées depuis le conteneur Jenkins de communiquer avec le démon Docker de la machine hôte.
+
+### 15.4 Authentification GitHub
+
+Jenkins est connecté à GitHub avec des informations d'authentification permettant d'accéder au dépôt du projet.
+
+Lors de l'exécution du pipeline, Jenkins récupère automatiquement le fichier :
+
+```text
+Jenkinsfile
+```
+
+depuis le commit correspondant.
+
+Exemple observé dans les journaux Jenkins :
+
+```text
+Connecting to https://api.github.com
+Obtained Jenkinsfile from ...
+```
+
+### 15.5 Authentification Docker Hub
+
+Les identifiants Docker Hub sont enregistrés dans les **Jenkins Credentials**.
+
+Le pipeline utilise ces credentials pour se connecter au registre Docker Hub sans exposer le mot de passe dans les journaux.
+
+La connexion est réalisée avec :
+
+```bash
+docker login --username kaman2803 --password-stdin
+```
+
+Le pipeline utilise `withCredentials` afin de masquer le mot de passe.
+
+Le résultat attendu est :
+
+```text
+Login Succeeded
+```
+
+À la fin du pipeline, Jenkins ferme également la session Docker Hub :
+
+```bash
+docker logout
+```
+
+### 15.6 Construction et publication des images
+
+Le pipeline construit les trois images principales :
+
+```text
+smarttask-frontend
+smarttask-backend
+smarttask-database
+```
+
+Les images sont ensuite associées à des tags correspondant à la branche et au numéro de build Jenkins.
+
+Pour la branche `Dev`, un exemple de tag généré est :
+
+```text
+Dev-2
+```
+
+Les images sont ensuite publiées sur Docker Hub :
+
+```text
+kaman2803/smarttask-frontend
+kaman2803/smarttask-backend
+kaman2803/smarttask-database
+```
+
+Pour la branche `Dev`, le pipeline publie notamment :
+
+```text
+Dev-2
+latest
+```
+
+Pour la branche `Prod`, le numéro de build est utilisé de la même manière, par exemple :
+
+```text
+Prod-1
+latest
+```
+
+### 15.7 Étapes du pipeline
+
+Le pipeline Jenkins réalise les opérations suivantes :
+
+```text
+1. Checkout
+      ↓
+2. Construction des images Docker
+      ↓
+3. Attribution des tags
+      ↓
+4. Connexion à Docker Hub
+      ↓
+5. Publication des images
+      ↓
+6. Docker logout
+```
+
+Les journaux Jenkins permettent de suivre chaque étape.
+
+Exemple :
+
+```text
+[Pipeline] stage
+[Pipeline] { (Push Docker Hub)
+=== 5. Publication des images ===
+```
+
+Les trois images sont publiées successivement :
+
+```text
+kaman2803/smarttask-database
+kaman2803/smarttask-backend
+kaman2803/smarttask-frontend
+```
+
+### 15.8 Validation de la CI/CD
+
+Le pipeline de la branche `Dev` a été exécuté avec succès.
+
+Résultat Jenkins :
+
+```text
+Pipeline exécuté avec succès pour la branche Dev.
+Finished: SUCCESS
+```
+
+Les trois images ont été publiées sur Docker Hub avec succès.
+
+La branche `Prod` a également été exécutée avec succès :
+
+```text
+Pipeline exécuté avec succès pour la branche Prod.
+Finished: SUCCESS
+```
+
+Les journaux Jenkins ont confirmé :
+
+```text
+Login Succeeded
+```
+
+ainsi que la publication des images avec leurs différents tags et leurs digest SHA256.
+
+### 15.9 Résultat final
+
+Les dépôts Docker Hub utilisés par le projet sont :
+
+```text
+kaman2803/smarttask-frontend
+kaman2803/smarttask-backend
+kaman2803/smarttask-database
+```
+
+La chaîne CI/CD permet donc de passer automatiquement du code source GitHub à des images Docker publiées dans Docker Hub.
 
 ---
 
-## 16. Sécurité et gestion des secrets
+## 16. Stratégie Git et workflow Dev/Prod
 
-Les informations sensibles sont stockées dans :
-
-```text
-.env
-```
-
-Ce fichier est exclu du dépôt Git grâce au `.gitignore` :
-
-```gitignore
-.env
-```
-
-Le dépôt contient uniquement le modèle :
+Le projet utilise deux branches principales :
 
 ```text
-.env.example
+Dev
+Prod
 ```
 
-Pour créer la configuration locale :
+### 16.1 Branche Dev
+
+La branche `Dev` est utilisée pour :
+
+- le développement ;
+- l'intégration des nouvelles fonctionnalités ;
+- les corrections ;
+- les tests ;
+- la validation de la chaîne CI/CD.
+
+Exemple :
 
 ```bash
-cp .env.example .env
+git switch Dev
 ```
 
-Les mots de passe réels ne doivent jamais être ajoutés au dépôt Git.
+Vérification :
+
+```bash
+git status
+```
+
+### 16.2 Branche Prod
+
+La branche `Prod` représente la version stable destinée à la production.
+
+Exemple :
+
+```bash
+git switch Prod
+```
+
+Vérification :
+
+```bash
+git status
+```
+
+### 16.3 Workflow de promotion
+
+Le workflow prévu est :
+
+```text
+Développement
+      │
+      ▼
+     Dev
+      │
+      │ Validation
+      ▼
+    Merge
+      │
+      ▼
+    Prod
+      │
+      │ Jenkins Multibranch
+      ▼
+  Build Docker
+      │
+      ▼
+    Tag Prod-X
+      │
+      ▼
+Publication Docker Hub
+```
+
+La branche `Prod` bénéficie donc du même mécanisme automatisé de construction et de publication que `Dev`.
 
 ---
 
-## 17. Résumé
+## 17. CI/CD — Résumé de la chaîne automatisée
 
-| Axe | Objectif |
+| Élément | Mise en œuvre |
 |---|---|
-| Conteneurisation | Isoler les différents composants avec Docker |
-| Orchestration | Gérer la stack avec Docker Compose |
-| Réseau | Assurer la communication inter-services avec `smarttask_network` |
-| Base de données | Assurer la persistance avec MySQL et un volume Docker |
-| Versionnement | Gérer le code avec Git et GitHub |
-| Branches | Séparer développement (`Dev`) et production (`Prod`) |
-| CI/CD | Automatiser les processus avec Jenkins |
-| Déploiement | Fournir un environnement reproductible et automatisé |
+| Gestion du code | Git |
+| Hébergement | GitHub |
+| Branches | `Dev` / `Prod` |
+| CI/CD | Jenkins |
+| Type de pipeline | Multibranch Pipeline |
+| Agent | Agent Docker personnalisé |
+| Docker CLI | Installée dans l'agent |
+| Docker Engine | Socket `/var/run/docker.sock` |
+| Build | Images Frontend / Backend / Database |
+| Registry | Docker Hub |
+| Authentification GitHub | Jenkins Credentials |
+| Authentification Docker Hub | Jenkins Credentials |
+| Tags | Branche + numéro de build |
+| Publication | Automatique |
+| Gestion des erreurs | Échec du pipeline en cas d'erreur |
+| Journaux | Console Jenkins |
+
+---
+
+## 18. Structure finale du projet
+
+La structure du dépôt comprend notamment :
+
+```text
+.
+├── backend/
+├── database/
+├── frontend/
+├── jenkins-agent/
+│   └── Dockerfile
+├── .env.example
+├── .gitignore
+├── docker-compose.yml
+├── build-images.sh
+├── Jenkinsfile
+├── setup.sh
+└── README.md
+```
+
+Le répertoire `jenkins-agent/` contient l'image personnalisée utilisée par Jenkins pour disposer de la CLI Docker.
+
+---
+
+## 19. Résumé global du projet
+
+| Axe | Objectif | Résultat |
+|---|---|:---:|
+| Microservices | Frontend / Backend / Database | ✅ |
+| Conteneurisation | Docker | ✅ |
+| Orchestration | Docker Compose | ✅ |
+| Réseau | `smarttask_network` | ✅ |
+| Persistance | Volume MySQL | ✅ |
+| Versionnement | Git | ✅ |
+| Dépôt distant | GitHub | ✅ |
+| Branches | `Dev` / `Prod` | ✅ |
+| CI/CD | Jenkins | ✅ |
+| Pipeline | Multibranch | ✅ |
+| Agent Docker | Personnalisé | ✅ |
+| Docker CLI | Installée dans l'agent | ✅ |
+| Docker Hub | Authentification | ✅ |
+| Build images | Automatisé | ✅ |
+| Tags | Automatisés | ✅ |
+| Push images | Automatisé | ✅ |
+| Frontend | Publié | ✅ |
+| Backend | Publié | ✅ |
+| Database | Publié | ✅ |
+| Branche Dev | Pipeline validé | ✅ |
+| Branche Prod | Pipeline validé | ✅ |
 
 ---
 
 ## Conclusion
 
-Le projet **SmartTask DevOps** permet de transformer une application web classique en une solution microservices conteneurisée et automatisable.
+Le projet **SmartTask DevOps** met en œuvre une chaîne DevOps complète allant du développement du code jusqu'à la publication automatisée des images Docker.
 
-L'environnement peut être préparé automatiquement avec `setup.sh`, la stack applicative est orchestrée avec Docker Compose et les communications entre services sont assurées par un réseau Docker dédié.
+L'application est organisée selon une architecture microservices composée d'un **Frontend React/Nginx**, d'un **Backend Node.js/Express** et d'une **base de données MySQL**. L'ensemble est conteneurisé et orchestré avec Docker Compose.
 
-Les tests réalisés ont permis de valider :
+La gestion du code est assurée par Git et GitHub avec une séparation entre les branches `Dev` et `Prod`.
 
-- la construction des images Docker ;
-- le démarrage des trois services ;
-- la communication Backend → MySQL ;
-- le fonctionnement de l'API REST ;
-- les opérations CRUD ;
-- le service Frontend avec Nginx ;
-- la persistance des données ;
-- la préparation de l'environnement Jenkins pour la CI/CD.
+La partie CI/CD est automatisée avec **Jenkins Multibranch Pipeline**. Un **agent Docker personnalisé** a été créé afin de fournir la CLI Docker à Jenkins et de permettre la construction et la publication des images.
 
-Le projet constitue ainsi une base complète pour la mise en œuvre d'une chaîne **DevOps / CI/CD** reproductible et maintenable.
+Le pipeline assure automatiquement :
+
+```text
+GitHub
+   ↓
+Jenkins Multibranch
+   ↓
+Checkout
+   ↓
+Build Docker
+   ↓
+Tag des images
+   ↓
+Docker Hub Login
+   ↓
+Push des images
+   ↓
+Docker Hub
+```
+
+Les pipelines des branches `Dev` et `Prod` ont été validés avec un résultat :
+
+```text
+Finished: SUCCESS
+```
+
+Les trois images suivantes sont désormais publiées sur Docker Hub :
+
+```text
+kaman2803/smarttask-frontend
+kaman2803/smarttask-backend
+kaman2803/smarttask-database
+```
+
+Le projet répond ainsi aux objectifs du **Projet 4 — Mise en place de la CI/CD avec Jenkins**, notamment :
+
+- la mise en place de Jenkins ;
+- la création d'un agent Docker personnalisé ;
+- la configuration de l'authentification GitHub ;
+- la configuration de l'authentification Docker Hub ;
+- la mise en place d'un pipeline Multibranch ;
+- la gestion des branches `Dev` et `Prod` ;
+- l'automatisation de la construction des images Docker ;
+- l'automatisation du tagging ;
+- la publication automatique des images sur Docker Hub.
+
+La chaîne complète permet ainsi d'automatiser le cycle :
+
+```text
+Code source
+    ↓
+GitHub
+    ↓
+Jenkins
+    ↓
+Build Docker
+    ↓
+Tag
+    ↓
+Docker Hub
+    ↓
+Images disponibles pour le déploiement
+```
