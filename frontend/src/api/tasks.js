@@ -1,7 +1,7 @@
 import axios from 'axios';
 
-// URL de ton API Backend Express
-const API_URL = 'http://192.168.120.3:5000/api/tasks';
+// URL dynamique basée sur l'IP/domaine depuis lequel le navigateur charge la page
+const API_URL = `http://${window.location.hostname}:5000/api/tasks`;
 
 export const getTasks = async () => {
   const response = await axios.get(API_URL);
